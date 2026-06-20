@@ -1,4 +1,3 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (FIXED)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -15,16 +14,11 @@ app.use(express.urlencoded({ extended: true }));
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NIM_API_KEY;
 
-// Debug check
 if (!NIM_API_KEY) {
   console.error("❌ NIM_API_KEY is missing!");
 }
 
-// Toggles
-const SHOW_REASONING = false;
-const ENABLE_THINKING_MODE = false;
-
-// Model mapping
+// Model mapping (اختياري فقط)
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
@@ -35,15 +29,12 @@ const MODEL_MAPPING = {
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
 };
 
-// Health
+// Health check
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'OpenAI to NVIDIA NIM Proxy'
-  });
+  res.json({ status: 'ok' });
 });
 
-// Models
+// Models list
 app.get('/v1/models', (req, res) => {
   res.json({
     object: 'list',
@@ -56,18 +47,20 @@ app.get('/v1/models', (req, res) => {
   });
 });
 
-// MAIN CHAT ENDPOINT
+// MAIN ENDPOINT (PASS THROUGH)
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
-    let nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-8b-instruct';
+    const nimModel =
+      MODEL_MAPPING[model] || model || 'meta/llama-3.1-8b-instruct';
 
+    // 🔥 IMPORTANT: NO MODIFICATION AT ALL
     const nimRequest = {
       model: nimModel,
       messages,
-      temperature: temperature || 1,
-      max_tokens: max_tokens || 9024,
+      temperature,
+      max_tokens,
       stream: stream || false
     };
 
@@ -80,7 +73,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           'Content-Type': 'application/json'
         },
         responseType: stream ? 'stream' : 'json',
-        timeout: 30000   // 🔥 IMPORTANT FIX
+        timeout: 60000
       }
     );
 
@@ -97,28 +90,13 @@ app.post('/v1/chat/completions', async (req, res) => {
       return;
     }
 
-    // NORMAL RESPONSE
-    res.json({
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: response.data.choices,
-      usage: response.data.usage || {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
-      }
-    });
+    // NORMAL RESPONSE (PASS RAW BACK)
+    res.json(response.data);
 
   } catch (error) {
-    console.error("🔥 ERROR:", {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data
-    });
+    console.error("🔥 ERROR:", error.message);
 
-    res.status(error.response?.status || 500).json({
+    res.status(500).json({
       error: {
         message: error.message,
         details: error.response?.data || null
@@ -127,17 +105,12 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
-// 404 handler
+// 404
 app.all('*', (req, res) => {
-  res.status(404).json({
-    error: {
-      message: `Endpoint ${req.path} not found`
-    }
-  });
+  res.status(404).json({ error: { message: "Not found" } });
 });
 
 // START SERVER
 app.listen(PORT, () => {
   console.log(`🚀 Proxy running on port ${PORT}`);
-  console.log(`Health: /health`);
 });
